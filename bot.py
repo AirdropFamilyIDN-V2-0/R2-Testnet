@@ -2,7 +2,7 @@
 # https://github.com/vkamppp/R2-Testnet
 # Modifications made by [Your GitHub Username]
 # Date of modification: June 8, 2025
-# This version is specifically modified to work ONLY with Binance Smart Chain Testnet.
+# This version supports multiple chain selection but executes transactions ONLY on BSC Testnet.
 
 import time
 import json
@@ -20,32 +20,36 @@ console.print(Panel.fit(
     title="🔥 Welcome",
     subtitle="Testnet Tools"))
 
-# --- HARDCODED BSC TESTNET CONFIGURATION ---
-# BSC Testnet Details
-BSC_TESTNET_RPC_URL = "https://bsc-testnet-rpc.publicnode.com/"
-BSC_TESTNET_CHAIN_ID = 97
-BSC_TESTNET_NAME = "Binance Smart Chain Testnet"
+# --- Load all network configurations from the file ---
+with open("network_config.json") as f:
+    network_configs_all = json.load(f)['networks'] # Load the 'networks' object
 
-# BSC Testnet Contract Addresses (provided by user)
-USDC_CONTRACT = "0x069D3763d1Ca4F724272E5F77A2f67ACDd2f9B35"
-R2USD_CONTRACT = "0x20c54C5F742F123Abb49a982BFe0af47edb38756"
-SR2USD_CONTRACT = "0x069D3763d1Ca4F724272E5F77A2f67ACDd2f9B35"
-LIQUIDITY_CONTRACT = "0xCcE6bfcA2558c15bB5faEa7479A706735Aef9634" # Will be skipped below
+console.print("\n[bold blue]Pilih jaringan yang akan digunakan:[/bold blue]")
+network_keys = list(network_configs_all.keys())
+for i, net_key in enumerate(network_keys):
+    console.print(f"[{i}] {network_configs_all[net_key]['name']}")
 
-web3 = Web3(Web3.HTTPProvider(BSC_TESTNET_RPC_URL))
-chainId = BSC_TESTNET_CHAIN_ID
+selected_index = int(console.input("\n[bold green]Masukkan nomor jaringan: [/bold green]"))
+
+# Get the key for the selected network
+selected_network_key = network_keys[selected_index]
+# Get the full configuration for the selected network
+netconf = network_configs_all[selected_network_key]
+
+web3 = Web3(Web3.HTTPProvider(netconf["rpcUrl"]))
+chainId = netconf["chainId"]
 
 if web3.is_connected():
-    console.print(f"✅ [green]Connected to {BSC_TESTNET_NAME}[/green]\n")
+    console.print(f"✅ [green]Connected to {netconf['name']}[/green]\n")
 else:
-    console.print(f"❌ [red]Failed to connect to {BSC_TESTNET_NAME} network.[/red]")
+    console.print(f"❌ [red]Gagal konek ke jaringan {netconf['name']}[/red]")
     exit()
 
 # --- Load Token ABI ---
 with open("tokenabi.json") as f:
     tokenabi = json.load(f)
 
-# --- Helper Functions ---
+# --- Helper Functions (No change here) ---
 def getNonce(sender): return int(web3.eth.get_transaction_count(sender))
 def getgasPrice(): return int(web3.eth.gas_price * Decimal(1.1))
 
@@ -97,7 +101,7 @@ def tx_process(title, sender, target, tx_hash, totalamount):
 def buyRUSD(addrtarget, sender, senderkey, amount):
     try:
         totalamount = int(amount) / 10**6
-        funcbuy = bytes.fromhex('095e7a95') # Ensure this is the correct selector for R2USD on BSC Testnet
+        funcbuy = bytes.fromhex('095e7a95') # This selector must be correct for R2USD on BSC Testnet
         enc = encode(['address', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256'],
                      [sender, amount, 0, 0, 0, 0, 0])
         data = web3.to_hex(funcbuy + enc)
@@ -118,7 +122,7 @@ def buyRUSD(addrtarget, sender, senderkey, amount):
 def stakesRUSD(addrtarget, sender, senderkey, amount):
     try:
         totalamount = int(amount) / 10**6
-        data = web3.to_hex(bytes.fromhex('1a5f0f00') + encode(['uint256'] * 10, [amount] + [0]*9)) # Ensure this is the correct selector for SR2USD on BSC Testnet
+        data = web3.to_hex(bytes.fromhex('1a5f0f00') + encode(['uint256'] * 10, [amount] + [0]*9)) # This selector must be correct for SR2USD on BSC Testnet
         tx = {
             'chainId': chainId,
             'from': sender,
@@ -133,10 +137,37 @@ def stakesRUSD(addrtarget, sender, senderkey, amount):
     except Exception as e:
         show_status("❌ Stake Error", sender, addrtarget, f"[red]{str(e)}[/red]")
 
-# --- Removed addLiquidity function ---
+def addLiquidity(addrtarget, sender, senderkey, amount):
+    try:
+        totalamount = int(amount) / 10**6
+        # These contract addresses are for Sepolia, ensuring they come from netconf for the selected chain
+        rUSD_contract_address = web3.to_checksum_address(netconf['contracts']['R2USD'])
+        sRUSD_contract_address = web3.to_checksum_address(netconf['contracts']['SR2USD'])
+
+        data = web3.to_hex(
+            bytes.fromhex('2e1a7d4d') + encode(
+                ['address', 'address', 'uint256', 'uint256', 'uint256', 'address', 'uint256'],
+                [rUSD_contract_address,
+                 sRUSD_contract_address,
+                 amount, 0, 0, sender, int(time.time()) + 1000]
+            )
+        )
+        tx = {
+            'chainId': chainId,
+            'from': sender,
+            'to': addrtarget,
+            'data': data,
+            'gasPrice': getgasPrice(),
+            'gas': web3.eth.estimate_gas({'from': sender, 'to': addrtarget, 'data': data}),
+            'nonce': getNonce(sender)
+        }
+        tx_hash = web3.eth.send_raw_transaction(web3.eth.account.sign_transaction(tx, senderkey).rawTransaction)
+        tx_process("Add Liquidity", sender, addrtarget, tx_hash, totalamount)
+    except Exception as e:
+        show_status("❌ Liquidity Error", sender, addrtarget, f"[red]{str(e)}[/red]")
 
 def run_actions():
-    amount = int(5 * 10**6) # This amount needs to be appropriate for BSC Testnet tokens
+    amount = int(5 * 10**6) # This amount needs to be appropriate for the target network tokens
 
     try:
         with open("pk.txt", "r") as f:
@@ -153,28 +184,71 @@ def run_actions():
 
             console.print(f"\n[bold green]🚀 Wallet #{index}: {sender_address}[/bold green]")
 
-            # Step 1: Approve USDC for R2USD contract (to buy R2USD)
-            console.print(f"[blue]Checking approval for USDC on R2USD...[/blue]")
-            if apprvCheck(USDC_CONTRACT, sender_address, R2USD_CONTRACT) < amount:
-                approveTokens(USDC_CONTRACT, R2USD_CONTRACT, sender_address, sender_key)
-            buyRUSD(R2USD_CONTRACT, sender_address, sender_key, amount) # Buy R2USD
-            time.sleep(10)
+            # --- Conditional execution of transactions ---
+            if selected_network_key == "bsc_testnet":
+                console.print(f"[bold magenta]Executing transactions on {netconf['name']}...[/bold magenta]")
+                # Get the contract addresses for the selected BSC Testnet dynamically
+                USDC_CONTRACT = web3.to_checksum_address(netconf['contracts']['USDC'])
+                R2USD_CONTRACT = web3.to_checksum_address(netconf['contracts']['R2USD'])
+                SR2USD_CONTRACT = web3.to_checksum_address(netconf['contracts']['SR2USD'])
+                # LIQUIDITY_CONTRACT = web3.to_checksum_address(netconf['contracts']['LIQUIDITY']) # Not used for BSC
 
-            # Step 2: Approve R2USD for SR2USD contract (to stake SR2USD)
-            console.print(f"[blue]Checking approval for R2USD on SR2USD...[/blue]")
-            if apprvCheck(R2USD_CONTRACT, sender_address, SR2USD_CONTRACT) < amount:
-                approveTokens(R2USD_CONTRACT, SR2USD_CONTRACT, sender_address, sender_key)
-            stakesRUSD(SR2USD_CONTRACT, sender_address, sender_key, amount) # Stake R2USD
-            time.sleep(10)
+                # Step 1: Approve USDC for R2USD contract (to buy R2USD)
+                console.print(f"[blue]Checking approval for USDC on R2USD...[/blue]")
+                if apprvCheck(USDC_CONTRACT, sender_address, R2USD_CONTRACT) < amount:
+                    approveTokens(USDC_CONTRACT, R2USD_CONTRACT, sender_address, sender_key)
+                buyRUSD(R2USD_CONTRACT, sender_address, sender_key, amount) # Buy R2USD
+                time.sleep(10)
 
-            # Step 3: Explicitly skipping Add Liquidity
-            console.print("[yellow]⏩ Skipping Add Liquidity for BSC Testnet (not supported or not needed)[/yellow]")
+                # Step 2: Approve R2USD for SR2USD contract (to stake SR2USD)
+                console.print(f"[blue]Checking approval for R2USD on SR2USD...[/blue]")
+                if apprvCheck(R2USD_CONTRACT, sender_address, SR2USD_CONTRACT) < amount:
+                    approveTokens(R2USD_CONTRACT, SR2USD_CONTRACT, sender_address, sender_key)
+                stakesRUSD(SR2USD_CONTRACT, sender_address, sender_key, amount) # Stake R2USD
+                time.sleep(10)
 
-            console.print(f"[cyan]✅ All relevant steps completed for wallet #{index} ({sender_address[-6:]})[/cyan]")
+                # Step 3: Explicitly skipping Add Liquidity for BSC Testnet
+                console.print("[yellow]⏩ Skipping Add Liquidity for BSC Testnet (not supported or not needed)[/yellow]")
+
+            elif selected_network_key == "sepolia": # Example for Sepolia where liquidity might be supported
+                console.print(f"[bold magenta]Executing transactions on {netconf['name']} (including Liquidity)...[/bold magenta]")
+                USDC_CONTRACT = web3.to_checksum_address(netconf['contracts']['USDC'])
+                R2USD_CONTRACT = web3.to_checksum_address(netconf['contracts']['R2USD'])
+                SR2USD_CONTRACT = web3.to_checksum_address(netconf['contracts']['SR2USD'])
+                LIQUIDITY_CONTRACT = web3.to_checksum_address(netconf['contracts']['LIQUIDITY'])
+
+                # Step 1: Approve USDC for R2USD contract (to buy R2USD)
+                console.print(f"[blue]Checking approval for USDC on R2USD...[/blue]")
+                if apprvCheck(USDC_CONTRACT, sender_address, R2USD_CONTRACT) < amount:
+                    approveTokens(USDC_CONTRACT, R2USD_CONTRACT, sender_address, sender_key)
+                buyRUSD(R2USD_CONTRACT, sender_address, sender_key, amount) # Buy R2USD
+                time.sleep(10)
+
+                # Step 2: Approve R2USD for SR2USD contract (to stake SR2USD)
+                console.print(f"[blue]Checking approval for R2USD on SR2USD...[/blue]")
+                if apprvCheck(R2USD_CONTRACT, sender_address, SR2USD_CONTRACT) < amount:
+                    approveTokens(R2USD_CONTRACT, SR2USD_CONTRACT, sender_address, sender_key)
+                stakesRUSD(SR2USD_CONTRACT, sender_address, sender_key, amount) # Stake R2USD
+                time.sleep(10)
+
+                # Step 3: Add Liquidity (only for Sepolia)
+                console.print(f"[blue]Checking approvals for Add Liquidity on {netconf['name']}...[/blue]")
+                if apprvCheck(R2USD_CONTRACT, sender_address, LIQUIDITY_CONTRACT) < amount:
+                    approveTokens(R2USD_CONTRACT, LIQUIDITY_CONTRACT, sender_address, sender_key)
+                if apprvCheck(SR2USD_CONTRACT, sender_address, LIQUIDITY_CONTRACT) < amount:
+                    approveTokens(SR2USD_CONTRACT, LIQUIDITY_CONTRACT, sender_address, sender_key)
+                addLiquidity(LIQUIDITY_CONTRACT, sender_address, sender_key, amount)
+                console.print(f"[cyan]✅ Add Liquidity steps completed for wallet #{index} ({sender_address[-6:]})[/cyan]")
+
+
+            else:
+                console.print(f"[yellow]⏩ Skipping Buy/Stake/Liquidity actions for {netconf['name']}. These actions are only supported on BSC Testnet or Sepolia (for LP).[/yellow]")
+
+            console.print(f"[cyan]✅ Wallet #{index} processing complete for {netconf['name']}.[/cyan]")
             time.sleep(15)
 
         except Exception as e:
-            console.print(f"[red]❌ Failed to process wallet #{index} ({sender_address[-6:]}): {e}[/red]")
+            console.print(f"[red]❌ Failed to process wallet #{index} ({sender_address[-6:]}) on {netconf['name']}: {e}[/red]")
 
 def main_loop():
     while True:
