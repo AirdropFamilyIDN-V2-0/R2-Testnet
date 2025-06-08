@@ -1,14 +1,15 @@
 # This code is a modified version of the original repository:
 # https://github.com/vkamppp/R2-Testnet
 # Modifications made by [Your GitHub Username]
-# Date of modification: June 8, 2025
-# This version supports multiple chain selection but executes transactions ONLY on BSC Testnet.
+# Date of modification: June 8, 2025 (Final Revision)
+# This version supports multiple chain selection and uses hardcoded function selectors
+# for custom transactions (buy/stake) on Sepolia and BSC Testnet. Other chains are skipped.
 
 import time
 import json
 from decimal import Decimal
 from web3 import Web3
-from eth_abi import encode
+from eth_abi import encode # eth_abi is used for manual encoding
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -45,11 +46,11 @@ else:
     console.print(f"❌ [red]Gagal konek ke jaringan {netconf['name']}[/red]")
     exit()
 
-# --- Load Token ABI ---
+# --- Load Token ABI (This is an ERC-20 ABI, not for custom functions) ---
 with open("tokenabi.json") as f:
     tokenabi = json.load(f)
 
-# --- Helper Functions (No change here) ---
+# --- Helper Functions ---
 def getNonce(sender): return int(web3.eth.get_transaction_count(sender))
 def getgasPrice(): return int(web3.eth.gas_price * Decimal(1.1))
 
@@ -67,6 +68,7 @@ def show_status(title, sender, target, status, tx=None):
     console.print(table)
 
 def apprvCheck(tokenaddr, sender, targetaddr):
+    # This uses the ERC-20 ABI, which is present in tokenabi.json
     contract = web3.eth.contract(address=tokenaddr, abi=tokenabi)
     return contract.functions.allowance(sender, targetaddr).call()
 
@@ -98,10 +100,13 @@ def tx_process(title, sender, target, tx_hash, totalamount):
     web3.eth.wait_for_transaction_receipt(tx_hash)
     show_status(f"✅ {title} Success", sender, target, "[green]Success[/green]", web3.to_hex(tx_hash))
 
+# --- REVERTED BUYRUSD to original hardcoded selector ---
 def buyRUSD(addrtarget, sender, senderkey, amount):
     try:
         totalamount = int(amount) / 10**6
-        funcbuy = bytes.fromhex('095e7a95') # This selector must be correct for R2USD on BSC Testnet
+        # Using hardcoded selector and encoding from original bot.
+        # This will ONLY work if the contract on the current chain uses this exact function signature.
+        funcbuy = bytes.fromhex('095e7a95')
         enc = encode(['address', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256'],
                      [sender, amount, 0, 0, 0, 0, 0])
         data = web3.to_hex(funcbuy + enc)
@@ -117,12 +122,15 @@ def buyRUSD(addrtarget, sender, senderkey, amount):
         tx_hash = web3.eth.send_raw_transaction(web3.eth.account.sign_transaction(tx, senderkey).rawTransaction)
         tx_process("Buy", sender, addrtarget, tx_hash, totalamount)
     except Exception as e:
-        show_status("❌ Buy Error", sender, addrtarget, f"[red]{str(e)}[/red]")
+        show_status("❌ Buy Error", sender, addrtarget, f"[red]{str(e)}[/red] : Check custom function selector/parameters.")
 
+# --- REVERTED STAKESRUSD to original hardcoded selector ---
 def stakesRUSD(addrtarget, sender, senderkey, amount):
     try:
         totalamount = int(amount) / 10**6
-        data = web3.to_hex(bytes.fromhex('1a5f0f00') + encode(['uint256'] * 10, [amount] + [0]*9)) # This selector must be correct for SR2USD on BSC Testnet
+        # Using hardcoded selector and encoding from original bot.
+        # This will ONLY work if the contract on the current chain uses this exact function signature.
+        data = web3.to_hex(bytes.fromhex('1a5f0f00') + encode(['uint256'] * 10, [amount] + [0]*9))
         tx = {
             'chainId': chainId,
             'from': sender,
@@ -135,15 +143,15 @@ def stakesRUSD(addrtarget, sender, senderkey, amount):
         tx_hash = web3.eth.send_raw_transaction(web3.eth.account.sign_transaction(tx, senderkey).rawTransaction)
         tx_process("Stake", sender, addrtarget, tx_hash, totalamount)
     except Exception as e:
-        show_status("❌ Stake Error", sender, addrtarget, f"[red]{str(e)}[/red]")
+        show_status("❌ Stake Error", sender, addrtarget, f"[red]{str(e)}[/red] : Check custom function selector/parameters.")
 
 def addLiquidity(addrtarget, sender, senderkey, amount):
     try:
         totalamount = int(amount) / 10**6
-        # These contract addresses are for Sepolia, ensuring they come from netconf for the selected chain
         rUSD_contract_address = web3.to_checksum_address(netconf['contracts']['R2USD'])
         sRUSD_contract_address = web3.to_checksum_address(netconf['contracts']['SR2USD'])
 
+        # Original encoding logic (assumed to work for Sepolia)
         data = web3.to_hex(
             bytes.fromhex('2e1a7d4d') + encode(
                 ['address', 'address', 'uint256', 'uint256', 'uint256', 'address', 'uint256'],
@@ -184,14 +192,13 @@ def run_actions():
 
             console.print(f"\n[bold green]🚀 Wallet #{index}: {sender_address}[/bold green]")
 
-            # --- Conditional execution of transactions ---
+            # --- Conditional execution of transactions based on network ---
             if selected_network_key == "bsc_testnet":
-                console.print(f"[bold magenta]Executing transactions on {netconf['name']}...[/bold magenta]")
-                # Get the contract addresses for the selected BSC Testnet dynamically
+                console.print(f"[bold magenta]Attempting custom transactions on {netconf['name']}...[/bold magenta]")
+                # Get the contract addresses for BSC Testnet dynamically
                 USDC_CONTRACT = web3.to_checksum_address(netconf['contracts']['USDC'])
                 R2USD_CONTRACT = web3.to_checksum_address(netconf['contracts']['R2USD'])
                 SR2USD_CONTRACT = web3.to_checksum_address(netconf['contracts']['SR2USD'])
-                # LIQUIDITY_CONTRACT = web3.to_checksum_address(netconf['contracts']['LIQUIDITY']) # Not used for BSC
 
                 # Step 1: Approve USDC for R2USD contract (to buy R2USD)
                 console.print(f"[blue]Checking approval for USDC on R2USD...[/blue]")
@@ -210,7 +217,7 @@ def run_actions():
                 # Step 3: Explicitly skipping Add Liquidity for BSC Testnet
                 console.print("[yellow]⏩ Skipping Add Liquidity for BSC Testnet (not supported or not needed)[/yellow]")
 
-            elif selected_network_key == "sepolia": # Example for Sepolia where liquidity might be supported
+            elif selected_network_key == "sepolia": # Sepolia supports original actions
                 console.print(f"[bold magenta]Executing transactions on {netconf['name']} (including Liquidity)...[/bold magenta]")
                 USDC_CONTRACT = web3.to_checksum_address(netconf['contracts']['USDC'])
                 R2USD_CONTRACT = web3.to_checksum_address(netconf['contracts']['R2USD'])
@@ -240,9 +247,8 @@ def run_actions():
                 addLiquidity(LIQUIDITY_CONTRACT, sender_address, sender_key, amount)
                 console.print(f"[cyan]✅ Add Liquidity steps completed for wallet #{index} ({sender_address[-6:]})[/cyan]")
 
-
-            else:
-                console.print(f"[yellow]⏩ Skipping Buy/Stake/Liquidity actions for {netconf['name']}. These actions are only supported on BSC Testnet or Sepolia (for LP).[/yellow]")
+            else: # For Base Sepolia or any other network without known ABI/support
+                console.print(f"[yellow]⏩ Skipping Buy/Stake/Liquidity actions for {netconf['name']}. Custom actions are currently only supported on BSC Testnet or Sepolia.[/yellow]")
 
             console.print(f"[cyan]✅ Wallet #{index} processing complete for {netconf['name']}.[/cyan]")
             time.sleep(15)
