@@ -43,4 +43,15 @@
             "LIQUIDITY": "0xF64a77f6e57d9fEeFd2E8fEDbd0032798dAC21Fa"
         }
     }
+   "bsc_testnet": {
+	"name": "BSC Testnet",
+	"chainId": 0,
+	"rpcUrl": "https://bsc-testnet-rpc.publicnode.com/",
+	"contracts": {
+	    "USDC": "0x069D3763d1Ca4F724272E5F77A2f67ACDd2f9B35"
+	    "R2USD": "0x20c54C5F742F123Abb49a982BFe0af47edb38756",
+	    "SR2USD": "0x069D3763d1Ca4F724272E5F77A2f67ACDd2f9B35",
+	   "LIQUIDITY": "none",
+	}
+    }
 }

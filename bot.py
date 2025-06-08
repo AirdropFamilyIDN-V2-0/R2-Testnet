@@ -1,3 +1,8 @@
+# This code is a modified version of the original repository:
+# https://github.com/vkamppp/R2-Testnet
+# Modifications made by vkamppp
+# Date of modification: June 8, 2025
+
 import time
 import json
 from decimal import Decimal
