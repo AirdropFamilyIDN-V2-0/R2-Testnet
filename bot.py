@@ -1,7 +1,8 @@
 # This code is a modified version of the original repository:
 # https://github.com/vkamppp/R2-Testnet
-# Modifications made by vkamppp
+# Modifications made by [Your GitHub Username]
 # Date of modification: June 8, 2025
+# This version is specifically modified to work ONLY with Binance Smart Chain Testnet.
 
 import time
 import json
@@ -19,30 +20,32 @@ console.print(Panel.fit(
     title="🔥 Welcome",
     subtitle="Testnet Tools"))
 
-with open("network_config.json") as f:
-    network_config = json.load(f)
+# --- HARDCODED BSC TESTNET CONFIGURATION ---
+# BSC Testnet Details
+BSC_TESTNET_RPC_URL = "https://bsc-testnet-rpc.publicnode.com/"
+BSC_TESTNET_CHAIN_ID = 97
+BSC_TESTNET_NAME = "Binance Smart Chain Testnet"
 
-console.print("\n[bold blue]Pilih jaringan yang akan digunakan:[/bold blue]")
-for i, net in enumerate(network_config.keys()):
-    console.print(f"[{i}] {network_config[net]['name']}")
+# BSC Testnet Contract Addresses (provided by user)
+USDC_CONTRACT = "0x069D3763d1Ca4F724272E5F77A2f67ACDd2f9B35"
+R2USD_CONTRACT = "0x20c54C5F742F123Abb49a982BFe0af47edb38756"
+SR2USD_CONTRACT = "0x069D3763d1Ca4F724272E5F77A2f67ACDd2f9B35"
+LIQUIDITY_CONTRACT = "0xCcE6bfcA2558c15bB5faEa7479A706735Aef9634" # Will be skipped below
 
-selected_index = int(console.input("\n[bold green]Masukkan nomor jaringan: [/bold green]"))
-selected_network = list(network_config.keys())[selected_index]
-netconf = network_config[selected_network]
-
-web3 = Web3(Web3.HTTPProvider(netconf["rpcUrl"]))
-chainId = netconf["chainId"]
+web3 = Web3(Web3.HTTPProvider(BSC_TESTNET_RPC_URL))
+chainId = BSC_TESTNET_CHAIN_ID
 
 if web3.is_connected():
-    console.print(f"✅ [green]Connected to {netconf['name']}[/green]\n")
+    console.print(f"✅ [green]Connected to {BSC_TESTNET_NAME}[/green]\n")
 else:
-    console.print(f"❌ [red]Gagal konek ke jaringan {netconf['name']}[/red]")
+    console.print(f"❌ [red]Failed to connect to {BSC_TESTNET_NAME} network.[/red]")
     exit()
 
-
+# --- Load Token ABI ---
 with open("tokenabi.json") as f:
     tokenabi = json.load(f)
 
+# --- Helper Functions ---
 def getNonce(sender): return int(web3.eth.get_transaction_count(sender))
 def getgasPrice(): return int(web3.eth.gas_price * Decimal(1.1))
 
@@ -66,11 +69,17 @@ def apprvCheck(tokenaddr, sender, targetaddr):
 def approveTokens(tokenaddr, targetaddr, sender, senderkey):
     try:
         token_contract = web3.eth.contract(address=tokenaddr, abi=tokenabi)
+        try:
+            gas_limit = token_contract.functions.approve(targetaddr, 2**256 - 1).estimate_gas({'from': sender})
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not estimate gas for approval, using default (e.g., 100000). Error: {e}[/yellow]")
+            gas_limit = 100000 # Fallback gas limit
+
         approve_tx = token_contract.functions.approve(targetaddr, 2**256 - 1).build_transaction({
             'chainId': chainId,
             'from': sender,
             'gasPrice': getgasPrice(),
-            'gas': token_contract.functions.approve(targetaddr, 2**256 - 1).estimate_gas({'from': sender}),
+            'gas': gas_limit,
             'nonce': getNonce(sender)
         })
         tx_hash = web3.eth.send_raw_transaction(web3.eth.account.sign_transaction(approve_tx, senderkey).rawTransaction)
@@ -88,7 +97,7 @@ def tx_process(title, sender, target, tx_hash, totalamount):
 def buyRUSD(addrtarget, sender, senderkey, amount):
     try:
         totalamount = int(amount) / 10**6
-        funcbuy = bytes.fromhex('095e7a95')
+        funcbuy = bytes.fromhex('095e7a95') # Ensure this is the correct selector for R2USD on BSC Testnet
         enc = encode(['address', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256', 'uint256'],
                      [sender, amount, 0, 0, 0, 0, 0])
         data = web3.to_hex(funcbuy + enc)
@@ -109,7 +118,7 @@ def buyRUSD(addrtarget, sender, senderkey, amount):
 def stakesRUSD(addrtarget, sender, senderkey, amount):
     try:
         totalamount = int(amount) / 10**6
-        data = web3.to_hex(bytes.fromhex('1a5f0f00') + encode(['uint256'] * 10, [amount] + [0]*9))
+        data = web3.to_hex(bytes.fromhex('1a5f0f00') + encode(['uint256'] * 10, [amount] + [0]*9)) # Ensure this is the correct selector for SR2USD on BSC Testnet
         tx = {
             'chainId': chainId,
             'from': sender,
@@ -124,39 +133,16 @@ def stakesRUSD(addrtarget, sender, senderkey, amount):
     except Exception as e:
         show_status("❌ Stake Error", sender, addrtarget, f"[red]{str(e)}[/red]")
 
-def addLiquidity(addrtarget, sender, senderkey, amount):
-    try:
-        totalamount = int(amount) / 10**6
-        data = web3.to_hex(
-            bytes.fromhex('2e1a7d4d') + encode(
-                ['address', 'address', 'uint256', 'uint256', 'uint256', 'address', 'uint256'],
-                [web3.to_checksum_address('0x20c54C5F742F123Abb49a982BFe0af47edb38756'),
-                 web3.to_checksum_address('0xBD6b25c4132F09369C354beE0f7be777D7d434fa'),
-                 amount, 0, 0, sender, int(time.time()) + 1000]
-            )
-        )
-        tx = {
-            'chainId': chainId,
-            'from': sender,
-            'to': addrtarget,
-            'data': data,
-            'gasPrice': getgasPrice(),
-            'gas': web3.eth.estimate_gas({'from': sender, 'to': addrtarget, 'data': data}),
-            'nonce': getNonce(sender)
-        }
-        tx_hash = web3.eth.send_raw_transaction(web3.eth.account.sign_transaction(tx, senderkey).rawTransaction)
-        tx_process("Add Liquidity", sender, addrtarget, tx_hash, totalamount)
-    except Exception as e:
-        show_status("❌ Liquidity Error", sender, addrtarget, f"[red]{str(e)}[/red]")
+# --- Removed addLiquidity function ---
 
 def run_actions():
-    amount = int(5 * 10**6)
+    amount = int(5 * 10**6) # This amount needs to be appropriate for BSC Testnet tokens
 
     try:
         with open("pk.txt", "r") as f:
             keys = [line.strip() for line in f if line.strip()]
     except FileNotFoundError:
-        console.print("[red]❌ File pk.txt tidak ditemukan![/red]")
+        console.print("[red]❌ File pk.txt not found! Please create it and add private keys.[/red]")
         return
 
     for index, privkey in enumerate(keys, 1):
@@ -167,38 +153,34 @@ def run_actions():
 
             console.print(f"\n[bold green]🚀 Wallet #{index}: {sender_address}[/bold green]")
 
-            USDC = web3.to_checksum_address('0xef84994eF411c4981328fFcE5Fda41cD3803faE4')
-            rUSD = web3.to_checksum_address('0x20c54C5F742F123Abb49a982BFe0af47edb38756')
-            sRUSD = web3.to_checksum_address('0xBD6b25c4132F09369C354beE0f7be777D7d434fa')
-            liquidity = web3.to_checksum_address('0xF64a77f6e57d9fEeFd2E8fEDbd0032798dAC21Fa')
-
-            if apprvCheck(USDC, sender_address, rUSD) < amount:
-                approveTokens(USDC, rUSD, sender_address, sender_key)
-            buyRUSD(rUSD, sender_address, sender_key, amount)
+            # Step 1: Approve USDC for R2USD contract (to buy R2USD)
+            console.print(f"[blue]Checking approval for USDC on R2USD...[/blue]")
+            if apprvCheck(USDC_CONTRACT, sender_address, R2USD_CONTRACT) < amount:
+                approveTokens(USDC_CONTRACT, R2USD_CONTRACT, sender_address, sender_key)
+            buyRUSD(R2USD_CONTRACT, sender_address, sender_key, amount) # Buy R2USD
             time.sleep(10)
 
-            if apprvCheck(rUSD, sender_address, sRUSD) < amount:
-                approveTokens(rUSD, sRUSD, sender_address, sender_key)
-            stakesRUSD(sRUSD, sender_address, sender_key, amount)
+            # Step 2: Approve R2USD for SR2USD contract (to stake SR2USD)
+            console.print(f"[blue]Checking approval for R2USD on SR2USD...[/blue]")
+            if apprvCheck(R2USD_CONTRACT, sender_address, SR2USD_CONTRACT) < amount:
+                approveTokens(R2USD_CONTRACT, SR2USD_CONTRACT, sender_address, sender_key)
+            stakesRUSD(SR2USD_CONTRACT, sender_address, sender_key, amount) # Stake R2USD
             time.sleep(10)
 
-            if apprvCheck(rUSD, sender_address, liquidity) < amount:
-                approveTokens(rUSD, liquidity, sender_address, sender_key)
-            if apprvCheck(sRUSD, sender_address, liquidity) < amount:
-                approveTokens(sRUSD, liquidity, sender_address, sender_key)
-            addLiquidity(liquidity, sender_address, sender_key, amount)
+            # Step 3: Explicitly skipping Add Liquidity
+            console.print("[yellow]⏩ Skipping Add Liquidity for BSC Testnet (not supported or not needed)[/yellow]")
 
-            console.print(f"[cyan]✅ Semua langkah selesai untuk wallet #{index} ({sender_address[-6:]})[/cyan]")
-            time.sleep(15) 
+            console.print(f"[cyan]✅ All relevant steps completed for wallet #{index} ({sender_address[-6:]})[/cyan]")
+            time.sleep(15)
 
         except Exception as e:
-            console.print(f"[red]❌ Gagal memproses wallet #{index}: {e}[/red]")
+            console.print(f"[red]❌ Failed to process wallet #{index} ({sender_address[-6:]}): {e}[/red]")
 
 def main_loop():
     while True:
         run_actions()
-        console.print("[yellow]🕒 Menunggu 24 jam sebelum lanjut...[/yellow]")
-        time.sleep(86400) 
+        console.print("[yellow]🕒 Waiting 24 hours before continuing...[/yellow]")
+        time.sleep(86400)
 
 if __name__ == "__main__":
     main_loop()
