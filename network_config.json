@@ -1,4 +1,5 @@
 {
+  "networks": {
     "sepolia": {
         "name": "Ethereum Sepolia",
         "chainId": 11155111,
@@ -43,4 +44,5 @@
             "LIQUIDITY": "0xF64a77f6e57d9fEeFd2E8fEDbd0032798dAC21Fa"
         }
     }
+  }
 }
