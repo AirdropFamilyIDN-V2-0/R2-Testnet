@@ -42,10 +42,10 @@
             "SR2USD": "0xBD6b25c4132F09369C354beE0f7be777D7d434fa",
             "LIQUIDITY": "0xF64a77f6e57d9fEeFd2E8fEDbd0032798dAC21Fa"
         }
-    }
+    },
    "bsc_testnet": {
 	"name": "BSC Testnet",
-	"chainId": 0,
+	"chainId": 97,
 	"rpcUrl": "https://bsc-testnet-rpc.publicnode.com/",
 	"contracts": {
 	    "USDC": "0x069D3763d1Ca4F724272E5F77A2f67ACDd2f9B35"
